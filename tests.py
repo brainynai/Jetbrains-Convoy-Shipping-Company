@@ -8,14 +8,14 @@ import os
 
 class EasyRiderStage1(StageTest):
     files_to_delete = []
-    files_to_check = ["data_one_xlsx.xlsx", "data_big_xlsx.xlsx", "data_one_csv.csv", "data_big_csv.csv"]
+    files_to_check = ["data_one.xlsx", "data_big.xlsx", "data_one.csv", "data_big.csv"]
 
     def generate(self) -> List[TestCase]:
         return [
-                TestCase(stdin=[self.prepare_file], attach=("data_one_xlsx.xlsx", 1, "line", 4, "cell", 488)),
-                TestCase(stdin=[self.prepare_file], attach=("data_big_xlsx.xlsx", 10, "line", 12, "cell", 5961)),
-                TestCase(stdin=[self.prepare_file], attach=("data_one_csv.csv", 1, None, 4, "cell", 488)),
-                TestCase(stdin=[self.prepare_file], attach=("data_big_csv.csv", 12, None, 12, "cell", 5961)),
+                TestCase(stdin=[self.prepare_file], attach=("data_one.xlsx", 1, "line", 4, "cell", 488)),
+                TestCase(stdin=[self.prepare_file], attach=("data_big.xlsx", 10, "line", 12, "cell", 5961)),
+                TestCase(stdin=[self.prepare_file], attach=("data_one.csv", 1, None, 4, "cell", 488)),
+                TestCase(stdin=[self.prepare_file], attach=("data_big.csv", 12, None, 12, "cell", 5961)),
         ]
 
     def after_all_tests(self):
