@@ -1,4 +1,5 @@
 import pandas as pd
+import sqlite3
 
 
 def csvFromXl(excelName):
@@ -14,7 +15,41 @@ def csvFromXl(excelName):
 
     print(f'{numRows} {lineOrLines} imported to {csvName}')
 
-    return csvName, my_df
+    return csvName
+
+
+def correctCsv(csvName):
+    df = pd.read_csv(csvName)
+
+    clean_df = df.replace(r'[^0-9]', '', regex=True)
+
+    numDiffs = sum(clean_df[col].compare(df[col]).shape[0] for col in clean_df)  # Hax
+
+    checkedName = csvName[:csvName.rfind('.')] + '[CHECKED].csv'
+    clean_df.to_csv(checkedName, index=None)
+
+    cellOrCells = 'cell was' if numDiffs == 1 else 'cells were'
+    print(f'{numDiffs} {cellOrCells} corrected in {checkedName}')
+
+    return checkedName
+
+
+def initDB(dbName):
+    conn = sqlite3.connect(dbName)
+    cur = conn.cursor()
+
+    cur.execute('DROP TABLE IF EXISTS convoy')  # Test will probably break otherwise
+    conn.commit()
+
+    cur.execute('''create table convoy (
+    vehicle_id INTEGER not null primary key, 
+    engine_capacity INTEGER not null, 
+    fuel_consumption INTEGER not null, 
+    maximum_load integer not null)''')
+
+    conn.commit()
+
+    return conn, cur
 
 
 inputName = input('Input file name\n')
@@ -22,21 +57,29 @@ inputName = input('Input file name\n')
 extension = inputName[inputName.rfind('.'):]
 
 if extension == '.xlsx':
-    csvName, df = csvFromXl(inputName)
+    csvName = csvFromXl(inputName)
 else:
     csvName = inputName
-    df = pd.read_csv(csvName)
 
-clean_df = df.replace(r'[^0-9]', '', regex=True)
+if not csvName.endswith('[CHECKED].csv'):
+    csvName = correctCsv(csvName)
 
-numDiffs = sum(clean_df[col].compare(df[col]).shape[0] for col in clean_df)  # Hax
+dataDF = pd.read_csv(csvName)
 
-checkedName = csvName[:csvName.rfind('.')] + '[CHECKED].csv'
-clean_df.to_csv(checkedName, index=None)
+dbName = csvName[:csvName.rfind('[')] + '.s3db'
+conn, cur = initDB(dbName)
 
-cellOrCells = 'cell was' if numDiffs == 1 else 'cells were'
-print(f'{numDiffs} {cellOrCells} corrected in {checkedName}')
+numOldRows = cur.execute('select count(*) from convoy').fetchone()[0]
+dataDF.to_sql('convoy', con=conn, if_exists='append', index=False)
+conn.commit()
+cur.execute('select count(*) from convoy')
+numNewRows = cur.fetchone()[0] - numOldRows
 
+recOrRecs = 'record was' if numNewRows == 1 else 'records were'
+print(f'{numNewRows} {recOrRecs} inserted into {dbName}')
+
+conn.commit()
+conn.close()
 
 #   vehicle_id engine_capacity fuel_consumption maximum_load
 # 0          2             200    fuel cons. 25      tons 14
