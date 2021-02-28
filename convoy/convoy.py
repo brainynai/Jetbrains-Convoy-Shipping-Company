@@ -54,7 +54,7 @@ def initDB(dbName):
     return conn, cur
 
 
-def dbToJson(conn, cur):
+def dbToJson(conn, cur, dbName):
     allRows = cur.execute("SELECT * FROM convoy").fetchall()
     rowDict = [dict(row) for row in allRows]
     numRowsToJson = len(rowDict)
@@ -68,6 +68,35 @@ def dbToJson(conn, cur):
 
     carOrCars = 'vehicle was' if numRowsToJson == 1 else 'vehicles were'
     print(f'{numRowsToJson} {carOrCars} saved into {jsonName}')
+
+
+def dbToXml(conn, cur, dbName):
+    allRows = cur.execute("SELECT * FROM convoy").fetchall()
+    rowDict = [dict(row) for row in allRows]
+    numRowsToXml = len(rowDict)
+    xmlName = dbName[:dbName.rfind('.')] + '.xml'
+
+    with open(xmlName, 'w') as f:
+        f.write('<convoy>')
+        for row in rowDict:
+            f.write('<vehicle>')
+            f.write('<vehicle_id>')
+            f.write(str(row['vehicle_id']))
+            f.write('</vehicle_id>')
+            f.write('<engine_capacity>')
+            f.write(str(row['engine_capacity']))
+            f.write('</engine_capacity>')
+            f.write('<fuel_consumption>')
+            f.write(str(row['fuel_consumption']))
+            f.write('</fuel_consumption>')
+            f.write('<maximum_load>')
+            f.write(str(row['maximum_load']))
+            f.write('</maximum_load>')
+            f.write('</vehicle>')
+        f.write('</convoy>')
+
+    carOrCars = 'vehicle was' if numRowsToXml == 1 else 'vehicles were'
+    print(f'{numRowsToXml} {carOrCars} saved into {xmlName}')
 
 
 inputName = input('Input file name\n')
@@ -103,7 +132,8 @@ else:
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-dbToJson(conn, cur)
+dbToJson(conn, cur, dbName)
+dbToXml(conn, cur, dbName)
 
 conn.commit()
 conn.close()
