@@ -1,5 +1,6 @@
 import pandas as pd
 import sqlite3
+import json
 
 
 def csvFromXl(excelName):
@@ -36,6 +37,7 @@ def correctCsv(csvName):
 
 def initDB(dbName):
     conn = sqlite3.connect(dbName)
+    conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
     cur.execute('DROP TABLE IF EXISTS convoy')  # Test will probably break otherwise
@@ -52,31 +54,56 @@ def initDB(dbName):
     return conn, cur
 
 
+def dbToJson(conn, cur):
+    allRows = cur.execute("SELECT * FROM convoy").fetchall()
+    rowDict = [dict(row) for row in allRows]
+    numRowsToJson = len(rowDict)
+    jsonDict = {"convoy": rowDict}
+    #print(jsonDict)
+
+    jsonName = dbName[:dbName.rfind('.')] + '.json'
+
+    with open(jsonName, 'w') as outFile:
+        json.dump(jsonDict, outFile)
+
+    carOrCars = 'vehicle was' if numRowsToJson == 1 else 'vehicles were'
+    print(f'{numRowsToJson} {carOrCars} saved into {jsonName}')
+
+
 inputName = input('Input file name\n')
 
 extension = inputName[inputName.rfind('.'):]
 
-if extension == '.xlsx':
-    csvName = csvFromXl(inputName)
+if not extension == '.s3db':
+    if extension == '.xlsx':
+        csvName = csvFromXl(inputName)
+    else:
+        csvName = inputName
+
+    if not csvName.endswith('[CHECKED].csv'):
+        csvName = correctCsv(csvName)
+
+    dataDF = pd.read_csv(csvName)
+
+    dbName = csvName[:csvName.rfind('[')] + '.s3db'
+    conn, cur = initDB(dbName)
+
+    numOldRows = cur.execute('select count(*) from convoy').fetchone()[0]
+    dataDF.to_sql('convoy', con=conn, if_exists='append', index=False)
+    conn.commit()
+    cur.execute('select count(*) from convoy')
+    numNewRows = cur.fetchone()[0] - numOldRows
+
+    recOrRecs = 'record was' if numNewRows == 1 else 'records were'
+    print(f'{numNewRows} {recOrRecs} inserted into {dbName}')
 else:
-    csvName = inputName
+    dbName = inputName
 
-if not csvName.endswith('[CHECKED].csv'):
-    csvName = correctCsv(csvName)
+    conn = sqlite3.connect(dbName)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
 
-dataDF = pd.read_csv(csvName)
-
-dbName = csvName[:csvName.rfind('[')] + '.s3db'
-conn, cur = initDB(dbName)
-
-numOldRows = cur.execute('select count(*) from convoy').fetchone()[0]
-dataDF.to_sql('convoy', con=conn, if_exists='append', index=False)
-conn.commit()
-cur.execute('select count(*) from convoy')
-numNewRows = cur.fetchone()[0] - numOldRows
-
-recOrRecs = 'record was' if numNewRows == 1 else 'records were'
-print(f'{numNewRows} {recOrRecs} inserted into {dbName}')
+dbToJson(conn, cur)
 
 conn.commit()
 conn.close()
