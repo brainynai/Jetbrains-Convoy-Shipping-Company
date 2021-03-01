@@ -3,6 +3,7 @@ import sqlite3
 import json
 
 
+
 def csvFromXl(excelName):
     csvName = excelName[:excelName.rfind('.')] + '.csv'
 
@@ -56,10 +57,13 @@ def initDB(dbName):
 
 def dbToJson(conn, cur, dbName):
     allRows = cur.execute("SELECT * FROM convoy").fetchall()
-    rowDict = [dict(row) for row in allRows]
+    rowDict = [dict(row) for row in allRows if row['score'] > 3]
     numRowsToJson = len(rowDict)
     jsonDict = {"convoy": rowDict}
     #print(jsonDict)
+
+    for i in range(len(rowDict)):
+        rowDict[i].pop('score', None)
 
     jsonName = dbName[:dbName.rfind('.')] + '.json'
 
@@ -72,13 +76,13 @@ def dbToJson(conn, cur, dbName):
 
 def dbToXml(conn, cur, dbName):
     allRows = cur.execute("SELECT * FROM convoy").fetchall()
-    rowDict = [dict(row) for row in allRows]
+    rowDict = [dict(row) for row in allRows if row['score'] <= 3]
     numRowsToXml = len(rowDict)
     xmlName = dbName[:dbName.rfind('.')] + '.xml'
 
     with open(xmlName, 'w') as f:
         f.write('<convoy>')
-        for row in rowDict:
+        for row in rowDict:  # This is not the best way of doing this, but meh
             f.write('<vehicle>')
             f.write('<vehicle_id>')
             f.write(str(row['vehicle_id']))
@@ -97,6 +101,41 @@ def dbToXml(conn, cur, dbName):
 
     carOrCars = 'vehicle was' if numRowsToXml == 1 else 'vehicles were'
     print(f'{numRowsToXml} {carOrCars} saved into {xmlName}')
+
+
+def scoreVehicles(conn, cur):
+    dbRow = cur.execute('select * from convoy').fetchall()[0]
+    if 'score' not in dbRow.keys():
+        cur.execute('alter table convoy add column score integer not null default 0')
+        conn.commit()
+
+    allRows = cur.execute('select * from convoy').fetchall()
+    for row in allRows:
+        score = calcScore(row['engine_capacity'], row['fuel_consumption'], row['maximum_load'])
+        cur.execute('update convoy set score = ? where vehicle_id = ?', (score, row['vehicle_id']))
+
+    conn.commit()
+
+
+def calcScore(engCap, fuelCon, maxLoad):
+    points = 0
+    routeLength = 450
+    fuelNeeded = 450/100 * fuelCon
+    stops = fuelNeeded//engCap
+    if stops == 0:
+        points += 2
+    elif stops == 1:
+        points += 1
+
+    if fuelNeeded <= 230:
+        points += 2
+    else:
+        points += 1
+
+    if maxLoad >= 20:
+        points += 2
+
+    return points
 
 
 inputName = input('Input file name\n')
@@ -132,6 +171,7 @@ else:
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
+scoreVehicles(conn, cur)
 dbToJson(conn, cur, dbName)
 dbToXml(conn, cur, dbName)
 

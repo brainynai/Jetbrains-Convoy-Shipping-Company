@@ -11,7 +11,7 @@ import os
 class EasyRiderStage1(StageTest):
     files_to_delete = []
     files_to_check = ["data_one_xlsx.xlsx", "data_big_xlsx.xlsx", "data_one_csv.csv", "data_big_csv.csv",
-                      "data_one_chk[CHECKED].csv", "data_big_chk[CHECKED].csv", "data_one_sql.s3db", "data_big_sql.s3db"]
+                      "data_one_chk[CHECKED].csv", "data_big_chk[CHECKED].csv", "data_big_sql.s3db", "data_final_xlsx.xlsx"]
 
     def s3db_generate(self, name):
         name = os.path.join("test", name.strip("chk[CHECKED].csv"))
@@ -20,12 +20,22 @@ class EasyRiderStage1(StageTest):
             db_convoy = file.readline().strip().split(",")
             conn = sqlite3.connect(f'{name}sql.s3db')
             convoy = conn.cursor()
-            convoy.execute(f"CREATE TABLE convoy({db_convoy[0]} INTEGER PRIMARY KEY, {db_convoy[1]} INTEGER NOT NULL, {db_convoy[2]} INTEGER NOT NULL, {db_convoy[3]} INTEGER NOT NULL);")
+            convoy.execute(f"CREATE TABLE if not exists convoy({db_convoy[0]} "
+                           f"INTEGER PRiMARY KEY, {db_convoy[1]} "
+                           f"INTEGER NOT NULL, {db_convoy[2]} "
+                           f"INTEGER NOT NULL, {db_convoy[3]} "
+                           f"INTEGER NOT NULL, "
+                           f"score INTEGER NOT NULL);")
             conn.commit()
             for line in file:
                 line = line.strip().split(",")
-                convoy.execute(f"INSERT INTO convoy({db_convoy[0]},{db_convoy[1]},{db_convoy[2]},{db_convoy[3]}) "
-                               f"VALUES({line[0]},{line[1]},{line[2]},{line[3]})")
+                distance = 450 / 100
+                score1 = (distance * int(line[2])) / int(line[1])
+                s1 = 0 if score1 > 2 else 1 if score1 >= 1 else 2
+                s2 = 2 if distance * int(line[2]) <= 230 else 1
+                s3 = 2 if int(line[3]) >= 20 else 0
+                score = s1 + s2 + s3
+                convoy.execute(f"INSERT INTO convoy({db_convoy[0]},{db_convoy[1]},{db_convoy[2]},{db_convoy[3]},score) VALUES({line[0]},{line[1]},{line[2]},{line[3]},{score})")
             conn.commit()
             conn.close()
 
@@ -36,17 +46,16 @@ class EasyRiderStage1(StageTest):
 
     def generate(self) -> List[TestCase]:
         self.remove_s3db_files()
-        self.s3db_generate("data_one_chk[CHECKED].csv")
         self.s3db_generate("data_big_chk[CHECKED].csv")
         return [
-                TestCase(stdin=[self.prepare_file], attach=("data_one_xlsx.xlsx", 1, "line", 4, "cell", 488, "record", "vehicle")),
-                TestCase(stdin=[self.prepare_file], attach=("data_big_xlsx.xlsx", 10, "line", 12, "cell", 5961, "record", "vehicle")),
-                TestCase(stdin=[self.prepare_file], attach=("data_one_csv.csv", 1, None, 4, "cell", 488, "record", "vehicle")),
-                TestCase(stdin=[self.prepare_file], attach=("data_big_csv.csv", 10, None, 12, "cell", 5961, "record", "vehicle")),
-                TestCase(stdin=[self.prepare_file], attach=("data_one_chk[CHECKED].csv", 1, None, None, "cell", 488, "record", "vehicle")),
-                TestCase(stdin=[self.prepare_file], attach=("data_big_chk[CHECKED].csv", 10, None, None, "cell", 5961, "record", "vehicle")),
-                TestCase(stdin=[self.prepare_file], attach=("data_one_sql.s3db", 1, None, None, "cell", 488, "record", "vehicle")),
-                TestCase(stdin=[self.prepare_file], attach=("data_big_sql.s3db", 10, None, None, "cell", 5961, "record", "vehicle")),
+                TestCase(stdin=[self.prepare_file], attach=("data_one_xlsx.xlsx", 1, "line", 4, "cell", 488, "record", "vehicle", 494, 1, 0)),
+                TestCase(stdin=[self.prepare_file], attach=("data_big_xlsx.xlsx", 10, "line", 12, "cell", 5961, "record", "vehicle", 6003, 7, 3)),
+                TestCase(stdin=[self.prepare_file], attach=("data_one_csv.csv", 1, None, 4, "cell", 488, "record", "vehicle", 494, 1, 0)),
+                TestCase(stdin=[self.prepare_file], attach=("data_big_csv.csv", 10, None, 12, "cell", 5961, "record", "vehicle", 6003, 7, 3)),
+                TestCase(stdin=[self.prepare_file], attach=("data_one_chk[CHECKED].csv", 1, None, None, "cell", 488, "record", "vehicle", 494, 1, 0)),
+                TestCase(stdin=[self.prepare_file], attach=("data_big_chk[CHECKED].csv", 10, None, None, "cell", 5961, "record", "vehicle", 6003, 7, 3)),
+                TestCase(stdin=[self.prepare_file], attach=("data_big_sql.s3db", 10, None, None, "cell", 5961, "record", "vehicle", 6811, 7, 3)),
+                #TestCase(stdin=[self.prepare_file], attach=("data_final_xlsx.xlsx", 19, "line", 3, "cell", 8121, "record", "vehicle", 8194, 12, 7)),
         ]
 
     def after_all_tests(self):
@@ -114,9 +123,9 @@ class EasyRiderStage1(StageTest):
 
         #  checking column names
         lines = convoy.execute('select * from convoy').description
-        if sorted([x[0] for x in lines]) != sorted(['vehicle_id', 'engine_capacity', 'fuel_consumption', 'maximum_load']):
+        if sorted([x[0] for x in lines]) != sorted(['vehicle_id', 'engine_capacity', 'fuel_consumption', 'maximum_load', 'score']):
             return f"There is something wrong in {file_name}. Found column names: {[x[0] for x in lines]}. " + \
-                   "Expected four columns names: 'vehicle_id', 'engine_capacity', 'fuel_consumption', 'maximum_load'"
+                   "Expected five columns names: 'vehicle_id', 'engine_capacity', 'fuel_consumption', 'maximum_load', 'score'"
 
         #  checking sum of cells
         all_lines = convoy.execute("SELECT * FROM convoy")
@@ -131,18 +140,18 @@ class EasyRiderStage1(StageTest):
         all_lines = convoy.execute("SELECT * FROM convoy")
         p_key = all_lines.fetchall()[0][0]
         try:
-            convoy.execute(f"INSERT INTO convoy(vehicle_id,engine_capacity,fuel_consumption,maximum_load) VALUES({p_key},0,0,0)")
+            convoy.execute(f"INSERT INTO convoy(vehicle_id,engine_capacity,fuel_consumption,maximum_load,score) VALUES({p_key},0,0,0,0)")
         except sqlite3.IntegrityError:
             pass
         else:
             return f"There is no PRIMARY KEY parameter on column 'vehicle_id' in {file_name}."
 
         #  checking if columns have an attribute NOT NULL
-        not_null = (('1000', 'Null', '1', '1'), ('1001', '1', 'Null', '1'), ('1002', '1', '1', 'Null'))
+        not_null = (('1000', 'Null', '1', '1', '1'), ('1001', '1', 'Null', '1', '1'), ('1002', '1', '1', 'Null', '1'), ('1003', '1', '1', '1', 'Null'))
         for values in not_null:
             try:
-                convoy.execute(f"INSERT INTO convoy(vehicle_id,engine_capacity,fuel_consumption,maximum_load) "
-                               f"VALUES({values[0]},{values[1]},{values[2]},{values[3]})")
+                convoy.execute(f"INSERT INTO convoy(vehicle_id,engine_capacity,fuel_consumption,maximum_load, score) "
+                               f"VALUES({values[0]},{values[1]},{values[2]},{values[3]},{values[4]})")
             except sqlite3.IntegrityError:
                 pass
             else:
@@ -157,6 +166,21 @@ class EasyRiderStage1(StageTest):
         count = 0
         with open(file_name, "r") as json_file:
             from_json = json.load(json_file)
+
+        # checking is there a score key
+        try:
+            if from_json["convoy"][0]["score"]:
+                return f"There is 'score' key in JSON file"
+        except KeyError:
+            pass
+        except TypeError:
+            return f"There is different data type in JSON file than dictionary."
+
+
+
+        #  check is there expected number of items and are there all keys
+        if len(from_json["convoy"]) != number:
+            return rf"Wrong number of items in JSON file. Expected {number}, found {len(from_json['convoy'])}."
         try:
             for item in from_json["convoy"]:
                 for field in fields:
@@ -164,13 +188,12 @@ class EasyRiderStage1(StageTest):
                         count += int(item[field])
                     except KeyError:
                         return f"There is no '{field}' key in record {item} in JSON file."
-            if count != number:
-                return f"Check data. Sum of integer in JSON should be {number}, found {count}"
         except KeyError:
             return f"There is no 'convoy' key in {file_name}."
         except TypeError:
             return f"There is different data type in JSON file than dictionary."
         return False
+
 
     @staticmethod
     def checking_xml(file_name, lines):
@@ -179,6 +202,10 @@ class EasyRiderStage1(StageTest):
         with open(file_name, "r") as xml_file:
             from_xml = xml_file.readlines()
         from_xml = "".join(x.strip("\n") for x in from_xml)
+
+        #  checking is there a score key
+        if re.findall(rf"<score>", from_xml):
+            return f"There is 'score' tag in XML file"
 
         #  checking number of tags with digits between
         for tag in tags:
@@ -199,10 +226,8 @@ class EasyRiderStage1(StageTest):
         template = r"^[\s]*(<convoy>)"
         for x in range(lines):
             template += r"[\s]*(<vehicle>)"
-            template += r"[\s]*(<vehicle_id>)[\d]+(</vehicle_id>)"
-            template += r"[\s]*(<engine_capacity>)[\d]+(</engine_capacity>)"
-            template += r"[\s]*(<fuel_consumption>)[\d]+(</fuel_consumption>)"
-            template += r"[\s]*(<maximum_load>)[\d]+(</maximum_load>)"
+            for key in tags:
+                template += fr"[\s]*(<{key}>)[\d]+(</{key}>)"
             template += r"[\s]*(</vehicle>)"
         template += r"[\s]*(</convoy>)[\s]*$"
         if not re.match(template, from_xml):
@@ -217,7 +242,6 @@ class EasyRiderStage1(StageTest):
         reply.pop(0)
         if len(reply) == 0:
             return CheckResult.wrong(f"There is not enough lines in the output")
-
         file_name = result[0].split(".")
 
         #  => xlsx
@@ -266,7 +290,7 @@ class EasyRiderStage1(StageTest):
             if test:
                 return CheckResult.wrong(test)
 
-            test = self.checking_database(f'{file_name[0]}.s3db', result[1], result[5])
+            test = self.checking_database(f'{file_name[0]}.s3db', result[1], result[8])
             if test:
                 return CheckResult.wrong(test)
 
@@ -283,11 +307,11 @@ class EasyRiderStage1(StageTest):
         if test:
             return CheckResult.wrong(test)
 
-        test = self.checking_json(f'{file_name[0]}.json', result[5])
+        test = self.checking_json(f'{file_name[0]}.json', result[9])
         if test:
             return CheckResult.wrong(test)
 
-        test = self.check_output(result[1], result[7], reply[0], f'{file_name[0]}.json')
+        test = self.check_output(result[9], result[7], reply[0], f'{file_name[0]}.json')
         if test:
             return CheckResult.wrong(test)
 
@@ -299,11 +323,11 @@ class EasyRiderStage1(StageTest):
         if test:
             return CheckResult.wrong(test)
 
-        test = self.checking_xml(f'{file_name[0]}.xml', result[1])
+        test = self.checking_xml(f'{file_name[0]}.xml', result[10])
         if test:
             return CheckResult.wrong(test)
 
-        test = self.check_output(result[1], result[7], reply[0], f'{file_name[0]}.xml')
+        test = self.check_output(result[10], result[7], reply[0], f'{file_name[0]}.xml')
         if test:
             return CheckResult.wrong(test)
 
